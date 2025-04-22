@@ -4,16 +4,109 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """
-Demo showcasing advanced joint friction and drive property manipulation using IsaacLab's new APIs.
+Demo showcasing advanced joint properties and drive envelope manipulation using IsaacLab's new PhysX APIs.
 
 .. code-block:: bash
 
     # Usage
     ./isaaclab.sh -p scripts/demos/new_api_demo.py
 
-"""
+API Specifications
+------------------
 
-"""Launch Isaac Sim Simulator first."""
+1. **PhysxDrivePerformanceEnvelopeAPI**
+---------------------------------------
+Defines three parameters per axis:
+- ``maxActuatorVelocity``
+- ``speedEffortGradient``
+- ``velocityDependentResistance``
+
+Works with ``PhysicsDriveAPI.maxForce`` to create a motor performance envelope with two constraints:
+
+**Effort Constraint**:
+.. math::
+    |driveEffort| \leq maxForce - velocityDependentResistance \cdot |jointVelocity|
+
+**Velocity Constraint**:
+.. math::
+    |jointVelocity| \leq maxActuatorVelocity - speedEffortGradient \cdot |driveEffort|
+
+Where ``driveEffort`` combines internal and user-applied forces.
+
+**Runtime Behavior**:
+- Without envelope API: Force clamped by static ``maxForce`` (runtime immutable)
+- With envelope API: Dynamic clamping via performance envelope parameters (runtime adjustable via tensor API)
+
+2. **PhysxJointAxisAPI**
+------------------------
+Defines five parameters per axis:
+- ``staticFrictionEffort``
+- ``dynamicFrictionEffort``
+- ``viscousFrictionCoefficient``
+- ``armature``
+- ``maxJointVelocity``
+
+**Friction Model**:
+1. System evaluates if static friction (``staticFrictionEffort``) can stop joint motion
+2. If insufficient:
+   - Applies dynamic friction from ``dynamicFrictionEffort``
+   - Adds velocity-dependent term: ``viscousFrictionCoefficient × jointVelocity``
+
+.. note::
+    - ``staticFrictionEffort ≥ dynamicFrictionEffort`` required
+    - Zero friction parameters trigger legacy model (deprecated)
+
+Implementation Details
+----------------------
+- Articulation with new APIs applied per axis defined in ``FixedArticulation.usda``
+- Demonstrates runtime updates via ``configure_joint_properties()`` tensor API
+
+Schema Definitions
+------------------
+
+**PhysxJointAxisAPI Parameters**:
+- ``armature``: 
+  - *Units*: Mass (linear) or Mass×Distance² (angular)
+  - *Range*: [0, ∞)
+  - Artificial inertia added to stabilize articulations
+  
+- ``dynamicFrictionEffort``: 
+  - *Units*: Force (linear) or Torque (angular)
+  - *Range*: [0, ∞)
+  - Must be ≤ staticFrictionEffort
+
+- ``maxJointVelocity``:
+  - *Units*: m/s (linear) or deg/s (angular)
+  - *Range*: [0, ∞)
+  - Hard velocity limit enforced by solver
+
+- ``staticFrictionEffort``:
+  - *Units*: Force (linear) or Torque (angular)
+  - *Range*: [0, ∞)
+  - Threshold for motion initiation
+
+- ``viscousFrictionCoefficient``:
+  - *Units*: Force·s/m (linear) or Torque·s/deg (angular)
+  - *Range*: [0, ∞)
+  - Velocity-dependent friction component
+
+**PhysxDrivePerformanceEnvelopeAPI Parameters**:
+- ``maxActuatorVelocity``:
+  - *Units*: m/s (linear) or deg/s (angular)
+  - *Range*: [0, ∞)
+  - Zero-force speed limit
+
+- ``speedEffortGradient``:
+  - *Units*: (m/s)/N (linear) or (deg/s)/Nm (angular)
+  - *Range*: [0, ∞)
+  - Models motor back-EMF effects
+
+- ``velocityDependentResistance``:
+  - *Units*: N·s/m (linear) or Nm·s/deg (angular)
+  - *Range*: [0, ∞)
+  - Force reduction per velocity unit
+
+"""
 
 import argparse
 from enum import Enum
