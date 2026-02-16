@@ -38,6 +38,40 @@ def flipped_match(x: str, y: str) -> re.Match | None:
     return re.match(y, x)
 
 
+def _apply_sdf_cfg_to_builder(builder, cfg):
+    """Apply SDF/hydroelastic config from NewtonCfg to all shapes in the builder."""
+    if cfg is None or cfg.sdf_cfg is None:
+        return
+    from newton import GeoType, ShapeFlags
+
+    _HYDRO_SUPPORTED = {
+        int(GeoType.BOX), int(GeoType.SPHERE), int(GeoType.CAPSULE),
+        int(GeoType.CYLINDER), int(GeoType.CONE), int(GeoType.MESH),
+        int(GeoType.ELLIPSOID),
+    }
+
+    def _apply_sdf(i, sdf):
+        builder.shape_sdf_max_resolution[i] = sdf.max_resolution
+        builder.shape_sdf_narrow_band_range[i] = sdf.narrow_band_range
+        builder.shape_contact_margin[i] = sdf.contact_margin
+        if sdf.is_hydroelastic and builder.shape_type[i] in _HYDRO_SUPPORTED:
+            builder.shape_flags[i] |= int(ShapeFlags.HYDROELASTIC)
+            builder.shape_material_k_hydro[i] = sdf.k_hydro
+        elif not sdf.is_hydroelastic:
+            builder.shape_flags[i] &= ~int(ShapeFlags.HYDROELASTIC)
+
+    # Apply default SDF config to all shapes
+    for i in range(builder.shape_count):
+        _apply_sdf(i, cfg.sdf_cfg)
+
+    # Apply per-shape overrides (substring match on shape key)
+    if cfg.sdf_overrides:
+        for pattern, override in cfg.sdf_overrides.items():
+            for i in range(builder.shape_count):
+                if pattern in builder.shape_key[i]:
+                    _apply_sdf(i, override)
+
+
 class NewtonManager:
     _builder: ModelBuilder = None
     _model: Model = None
@@ -169,10 +203,23 @@ class NewtonManager:
         up_axis = UsdGeom.GetStageUpAxis(stage)
         builder = ModelBuilder(up_axis=up_axis)
         builder.add_usd(stage)
+        
+        _apply_sdf_cfg_to_builder(builder, NewtonManager._cfg)
+        
         NewtonManager.set_builder(builder)
 
     @classmethod
     def set_solver_settings(cls, newton_params: dict):
+        from .newton_manager_cfg import SDFCfg
+
+        newton_params = newton_params.copy()
+        if "sdf_cfg" in newton_params and isinstance(newton_params["sdf_cfg"], dict):
+            newton_params["sdf_cfg"] = SDFCfg(**newton_params["sdf_cfg"])
+        if "sdf_overrides" in newton_params and isinstance(newton_params["sdf_overrides"], dict):
+            newton_params["sdf_overrides"] = {
+                k: SDFCfg(**v) if isinstance(v, dict) else v
+                for k, v in newton_params["sdf_overrides"].items()
+            }
         NewtonManager._cfg = NewtonCfg(**newton_params)
 
     @classmethod

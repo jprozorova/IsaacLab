@@ -293,9 +293,16 @@ def newton_replicate(
         quaternions = torch.zeros((mapping.size(1), 4), device=mapping.device, dtype=torch.float32)
         quaternions[:, 3] = 1.0
 
+    def _apply_sdf_to_shapes(b):
+        """Override SDF/hydroelastic params on all shapes in builder (after add_usd, before finalize)."""
+        from isaaclab.sim._impl.newton_manager import _apply_sdf_cfg_to_builder
+
+        _apply_sdf_cfg_to_builder(b, NewtonManager._cfg)
+
     # load empty stage
     builder = ModelBuilder(up_axis=up_axis)
     stage_info = builder.add_usd(stage, ignore_paths=["/World/envs"] + sources)
+    _apply_sdf_to_shapes(builder)
 
     # build a prototype for each source
     protos: dict[str, ModelBuilder] = {}
@@ -303,6 +310,7 @@ def newton_replicate(
         p = ModelBuilder(up_axis=up_axis)
         solvers.SolverMuJoCo.register_custom_attributes(p)
         p.add_usd(stage, root_path=src_path, load_visual_shapes=True)
+        _apply_sdf_to_shapes(p)
         if simplify_meshes:
             p.approximate_meshes("convex_hull")
         protos[src_path] = p

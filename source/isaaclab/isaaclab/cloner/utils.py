@@ -44,6 +44,15 @@ def replicate_environment(
         (ModelBuilder, dict): The resulting ModelBuilder containing all replicated environments and a dictionary with USD stage information.
     """
 
+    def _apply_sdf_to_shapes(b):
+        """Override SDF/hydroelastic params on all shapes in builder (after add_usd, before finalize)."""
+        try:
+            from isaaclab.sim._impl.newton_manager import NewtonManager, _apply_sdf_cfg_to_builder
+
+            _apply_sdf_cfg_to_builder(b, NewtonManager._cfg)
+        except Exception:
+            pass
+
     with Timer(name="newton_env_builder", msg="Env Builder took:", enable=True, format="ms"):
         builder = ModelBuilder(up_axis=up_axis)
 
@@ -52,6 +61,7 @@ def replicate_environment(
             ignore_paths=[prototype_path],
             **usd_kwargs,
         )
+        _apply_sdf_to_shapes(builder)
 
         # up_axis sanity check
         stage_up_axis = stage_info.get("up_axis")
@@ -87,6 +97,7 @@ def replicate_environment(
                 root_path=child_path,
                 **usd_kwargs,
             )
+        _apply_sdf_to_shapes(prototype_builder)
         prototype_builder.approximate_meshes("convex_hull")
 
     with Timer(name="newton_multiple_add_to_builder", msg="All add to builder took:", enable=True, format="ms"):
